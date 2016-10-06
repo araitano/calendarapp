@@ -13,10 +13,9 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.text.method.ScrollingMovementMethod;
-import android.util.Log;
-import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -41,8 +40,8 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -66,6 +65,10 @@ public class MainActivity extends Activity
     private static final String PREF_ACCOUNT_NAME = "accountName";
     private static final String[] SCOPES = { CalendarScopes.CALENDAR_READONLY };
 
+    private Handler handler;
+    private static int FIFTEEN_MINUTES = 900000;
+    long countdownOne;
+
     /**
      * Create the main activity.
      * @param savedInstanceState previously saved instance data.
@@ -85,6 +88,7 @@ public class MainActivity extends Activity
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
 
+        /*
         mCallApiButton = new Button(this);
         mCallApiButton.setText(BUTTON_TEXT);
         mCallApiButton.setOnClickListener(new View.OnClickListener() {
@@ -97,6 +101,7 @@ public class MainActivity extends Activity
             }
         });
         activityLayout.addView(mCallApiButton);
+        */
 
         mOutputText = new TextView(this);
         mOutputText.setLayoutParams(tlp);
@@ -118,10 +123,70 @@ public class MainActivity extends Activity
                 getApplicationContext(), Arrays.asList(SCOPES))
                 .setBackOff(new ExponentialBackOff());
 
+
+
         getResultsFromApi();
+
+        handler = new Handler();
+        countdownOne = getTime();
+
+
+        final Runnable runnable = new Runnable() {
+
+
+            @Override
+            public void run() {
+
+                getResultsFromApi();
+
+                handler.postDelayed(new Runnable() {
+
+                    @Override
+                    public void run() {
+
+                        getResultsFromApi();
+                        handler.postDelayed(this, FIFTEEN_MINUTES);
+
+                    }
+
+                }, FIFTEEN_MINUTES);
+
+            }
+        };
+        handler.postDelayed(runnable, countdownOne);
+
 
     }
 
+    /* get current time in milliseconds for minutes and seconds
+    * and*/
+
+
+    public long getTime() {
+        SimpleDateFormat fMinutes = new SimpleDateFormat("mm");
+        SimpleDateFormat fSeconds = new SimpleDateFormat("ss");
+        Date currentDate = new Date(System.currentTimeMillis());
+
+        String minuteString = fMinutes.format(currentDate);
+        String secondString = fSeconds.format(currentDate);
+
+        long minuteInt = Integer.parseInt(minuteString);
+        long secondInt = Integer.parseInt(secondString) * 1000;
+
+        if (minuteInt > 45) {
+            minuteInt -= 45;
+        } else if (minuteInt > 30) {
+            minuteInt -= 30;
+        } else if (minuteInt > 15) {
+            minuteInt -= 15;
+        }
+
+        minuteInt *= 60000;
+        long timeToFifteen = 901000 - (minuteInt + secondInt);
+
+        return timeToFifteen;
+
+    }
 
 
     /**
@@ -360,16 +425,14 @@ public class MainActivity extends Activity
          * @throws IOException
          */
         private List<String> getDataFromApi() throws IOException {
+
             // List the next (n) events from the primary calendar.
 
             String startTime = "";
             String endTime = "";
             String fStartTime = "";
             String fEndTime = "";
-            //Date mStartTime;
-            //Date mEndTime;
 
-            SimpleDateFormat formatDate = new SimpleDateFormat("kk:mm", Locale.getDefault());
             DateTime now = new DateTime(System.currentTimeMillis());
             List<String> eventStrings = new ArrayList<String>();
             Events events = mService.events().list("primary")
@@ -378,20 +441,21 @@ public class MainActivity extends Activity
                     .setOrderBy("startTime")
                     .setSingleEvents(true)
                     .execute();
+
             List<Event> items = events.getItems();
 
             for (Event event : items) {
+
                 String color = event.getColorId();
                 DateTime start = event.getStart().getDateTime();
                 DateTime end = event.getEnd().getDateTime();
+
                 if (start == null) {
                     // All-day events don't have start times, so just use
                     // the start date.
                     start = event.getStart().getDate();
                     end = event.getEnd().getDate();
-
                 }
-
 
                 startTime = start.toString();
                 endTime = end.toString();
@@ -399,72 +463,29 @@ public class MainActivity extends Activity
                 // will return whatever is between the characters surrounding the inner parens
                 Pattern timeOnly = Pattern.compile("T(.*).000");
 
-
                 // matches the pattern  with the String (times)
                 Matcher mStartTime = timeOnly.matcher(startTime);
                 Matcher mEndTime = timeOnly.matcher(endTime);
 
                 // find and extract start and stop times for current and next events
                 while (mStartTime.find()) {
-
                     fStartTime = mStartTime.group(1);
-
-
                 }
+
                 while (mEndTime.find()) {
-
-
                     fEndTime = mEndTime.group(1);
-
                 }
-
 
                 eventStrings.add(event.getSummary());
                 eventStrings.add(color);
                 eventStrings.add(fStartTime);
                 eventStrings.add(fEndTime);
-                Log.i("start info", fStartTime);
-                Log.i("end info", fEndTime);
-
-            }
-
-
-            return eventStrings;
-        }
-
-        // get current event and colorID on schedule
-
-        private List<String> getCurrentCalEvent() throws IOException {
-
-
-
-            DateTime now = new DateTime(System.currentTimeMillis());
-            List<String> eventStrings = new ArrayList<String>();
-            Events events = mService.events().list("primary")
-                    .setMaxResults(2) // (n)
-                    .setTimeMin(now)
-                    .setOrderBy("startTime")
-                    .setSingleEvents(true)
-                    .execute();
-            List<Event> items = events.getItems();
-
-            for (Event event : items) {
-                String color = event.getColorId();
-                DateTime start = event.getStart().getDateTime();
-                if (start == null) {
-                    // All-day events don't have start times, so just use
-                    // the start date.
-                    start = event.getStart().getDate();
-
-                }
-                eventStrings.add(event.getSummary());
-                eventStrings.add(color);
-                Log.i("start info", start.toString());
 
             }
 
             return eventStrings;
         }
+
 
         @Override
         protected void onPreExecute() {
@@ -478,8 +499,28 @@ public class MainActivity extends Activity
 
             String mColor = colorTranslate(Integer.parseInt(output.get(1)));
 
+            // must create Date object for current time and time of first even in order
+            // to compare them so the display can show if the event is happening now or still
+            // waiting to start
+            SimpleDateFormat hoursMinsSecs = new SimpleDateFormat("HHmmss");
+            Date currentDate = new Date(System.currentTimeMillis());
+            String timeOfFirstEvent = output.get(2).replace(":", "");
+            String currentTimeString = hoursMinsSecs.format(currentDate);
+
+
             if (output == null || output.size() == 0) {
                 mOutputText.setText("No results returned.");
+
+            } else if (Integer.parseInt(timeOfFirstEvent) > Integer.parseInt(currentTimeString) ){
+
+                mOutputText.setTextSize(60);
+                mOutputText.setText("Next: " + output.get(0) +
+                        "\n\tstarts at: " + output.get(2) +
+                        "\nNext: " + output.get(4) +
+                        "\n\tstarts at: " + output.get(6));
+                activityLayout.setBackgroundColor(Color.parseColor(mColor));
+
+
             } else {
 
                 // output(0-3) is eventId, colorId, start time, end time of current event
@@ -539,11 +580,11 @@ public class MainActivity extends Activity
                     break;
                 case 7: tColor = "#46d6db";
                     break;
-                case 8: tColor = "#5484ed";
+                case 8: tColor = "#e1e1e1";
                     break;
-                case 9: tColor = "#51b749";
+                case 9: tColor = "#5484ed";
                     break;
-                case 10: tColor = "#e1e1e1";
+                case 10: tColor = "#51b749";
                     break;
                 case 11: tColor = "#dc2127";
                     break;
